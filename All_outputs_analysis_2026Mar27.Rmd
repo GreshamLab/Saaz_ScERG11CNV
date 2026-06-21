@@ -1,7 +1,7 @@
 ---
 title: "Analysis of growth curve outputs"
 author: "Saaz Sakrikar"
-date: "2026-03-27"
+date: "2026-06-20"
 output: html_document
 ---
 
@@ -134,4 +134,35 @@ Heatmap=ggplot(Commonconcs_goodbatches_CNV_ordered,aes(x=as.factor(FLC_conc),y=f
 Heatmap
 #ggsave("./Heatmap_allstrainsgrowth.tiff", plot = Heatmap, device = "tiff")
 #ggsave("./Heatmap_allstrainsgrowth.pdf", plot = Heatmap, device = "pdf")
+```
+
+```{r copy_compare, warning=FALSE}
+#At FLC 32, comparing CNV strains to the two engineered strains EaG and EaG_EKO
+FLC32test=Commonconcs_goodbatches_CNV[Commonconcs_goodbatches_CNV$FLC_conc==32,]
+#anova(lm(r ~ Type, FLC32test))
+pairwise.t.test(FLC32test$r, FLC32test$Type, alternative = "less") #altenrative = less because we're specifically looking for if the EaG_EKO strain grows slower than the EaG or CNV strains
+
+#Comparing all CNV strains evolved at FLC 16 to control strain growth at FLC 16
+Evolved16test=Commonconcs_goodbatches[Commonconcs_goodbatches$FLC_evolved==16,]
+Evolved16test=rbind(Evolved16test, Commonconcs_goodbatches_control)
+Evolved16test=Evolved16test[Evolved16test$FLC_conc==16,]
+Evolved16test=Evolved16test[!is.na(Evolved16test$r),]
+#aggregate(r ~ Type, data = Evolved16test, FUN = mean)
+t.test(r ~ Type, data = Evolved16test, alternative = "greater")
+#Again, we want to see if CNV strains are significantly better growers than control strains, hence a one-tailed test.
+
+#Comparing all CNV strains evolved at FLC 32 to control strain growth at FLC 32
+Evolved32test=Commonconcs_goodbatches[Commonconcs_goodbatches$FLC_evolved==32,]
+Evolved32test=rbind(Evolved32test, Commonconcs_goodbatches_control)
+Evolved32test=Evolved32test[Evolved32test$FLC_conc==32,]
+Evolved32test=Evolved32test[!is.na(Evolved32test$r),]
+t.test(r ~ Type, data = Evolved32test, alternative = "greater")
+
+#Comparing all CNV strains evolved at FLC 8 to control strain growth at FLC 8
+Evolved8test=Commonconcs_goodbatches[Commonconcs_goodbatches$FLC_evolved==8,]
+Evolved8test=rbind(Evolved8test, Commonconcs_goodbatches_control)
+Evolved8test=Evolved8test[Evolved8test$FLC_conc==8,]
+Evolved8test=Evolved8test[!is.na(Evolved8test$r),]
+t.test(r ~ Type, data = Evolved8test, alternative = "greater")
+
 ```
