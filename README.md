@@ -17,10 +17,12 @@ This repository contains R code, analysis scripts, and supporting data for resea
 
 ### Supplementary Visualization Scripts
 
-| Script | Figure(s) | Description |
-|--------|-----------|-------------|
-| `Depth_visualisation_comparison_May82025.Rmd` | Fig. 4 | Genome-wide read depth visualization: ancestral strain vs. CNV strain |
-| `perbase_groupvisualisation-allcond_selected.Rmd` | Fig. S3 | Comparative genome-wide read depth visualization across multiple strains |
+| Script | Figure(s) | Description | Input Data |
+|--------|-----------|-------------|------------|
+| `Depth_visualisation_comparison_May82025.Rmd` | Fig. 4 | Genome-wide read depth visualization: ancestral strain vs. CNV strain | perbase files |
+| `perbase_groupvisualisation-allcond_selected.Rmd` | Fig. S3 | Comparative genome-wide read depth visualization of representative ERG11 CNV strains | perbase files |
+| `perbase_groupvisualisation-FLC16GAP1_selected.Rmd` | Fig. S4 | Comparative genome-wide read depth visualization of representative Chr XI CNV strains | perbase files
+| `Selected_genomevisualisation.Rmd` | Fig. S6 | Visualising the genomic context at the native ERG11 locus on Chr VIII and the GAP1 locus on Chr XI | `ERG11contextcombined.csv` |
 
 ### Example and Utility Scripts
 
