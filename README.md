@@ -17,6 +17,8 @@ This repository contains R code, analysis scripts, and supporting data for resea
 
 ### Supplementary Visualization Scripts
 
+The perbase.txt files used as input for some of these codes are ~250MB in size and ccannot be uploaded here. They can be generated as described in the Methods section of the manuscript, from sorted BAM files, using the bedtools genomecov command with the -d flag. 
+
 | Script | Figure(s) | Description | Input Data |
 |--------|-----------|-------------|------------|
 | `Depth_visualisation_comparison_May82025.Rmd` | Fig. 4 | Genome-wide read depth visualization: ancestral strain vs. CNV strain | perbase files |
