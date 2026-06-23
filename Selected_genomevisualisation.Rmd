@@ -1,0 +1,44 @@
+---
+title: "Selected_genomevisualisation"
+output: html_document
+date: "2026-05-07"
+---
+
+Code written by Google Gemini and then modified by me.
+ERG11context_combined.csv manually taken from the relevant gff files, themselves created using Reform.
+
+```{r inputs}
+library(ggplot2)
+library(gggenes)
+
+data <- read.csv("ERG11context_combined.csv")
+```
+
+```{r setup}
+# gggenes expects a 'forward' column where TRUE is + and FALSE is -
+data$direction <- ifelse(data$Or == "+", TRUE, FALSE)
+```
+
+```{r plot}
+
+Contextplot=ggplot(data, aes(xmin = Start, xmax = Stop, y = Chr, fill = Type, label = Name, forward = direction)) +
+  # Draw the background line (genomic coordinate)
+  #geom_feature(aes(x = Start), y = "Chr VIII") + 
+  # Draw arrows for genes and features
+  geom_gene_arrow(forward = data$direction, arrowhead_height = unit(3, "mm"), arrowhead_width = unit(1, "mm")) +
+  # Add labels for the genes
+  #geom_gene_label(aes(label = Name), align = "left", size = 10) +
+  # Use separate facets if you have multiple chromosomes
+  facet_wrap(~ Chr, scales = "free", ncol = 1) +
+  # Styling
+  scale_fill_brewer(palette = "Set2") +
+  theme_genes() +
+  labs(title = "Genomic Context of ERG11",
+       x = "Genomic Position (bp)",
+       fill = "Feature Type") +
+  theme(legend.position = "bottom")
+
+Contextplot
+
+ggsave("ERG11construct_genomiccontext.pdf", Contextplot, device="pdf")
+```
