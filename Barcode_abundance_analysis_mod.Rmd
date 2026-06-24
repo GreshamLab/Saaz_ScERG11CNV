@@ -1,0 +1,739 @@
+---
+title: "02_Bootstrapping"
+author: "Akriti"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document: 
+    toc: true
+    number_section: true
+    toc_float: 
+      collapsed: false
+      smooth_scroll: true
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../results/") })
+---
+
+## Barcode abundance analysis
+
+#Step 1. Barcode quantification
+
+We found result of sequencing as a fastq files in folders (as shown on hpc as HGWKVAFX5). We have two type of reads HGWKVAFX5_01 that contains Read1 and HGWKVAFX5_02 that contains Read_2. 
+
+#Some details about the sequences
+
+1. This sequencing result is a PCR_product sequencing result and we know we expect some 50 bases in the sequence (could be seen in the file BARSEQ_YETI_Library in SnapGene). 
+Only Read_1 is important to us because we expect it to contain Barcodes. 
+2. The barcode sequence are 12bp long. 
+3. We performed quantification (counting the number of barcodes in each experiment/timepoints) on hpc, we merged the files and extracted the final count file which is loaded in this rmd. 
+
+#Loading the required library
+
+```{r, include = F, Echo = F}
+#BiocManager::install("clusterProfiler")
+
+#BiocManager::install("enrichplot")
+
+library(stringr)
+library(dplyr)
+library(tibble)
+library(purrr)
+library(ggplot2)
+library(tidyverse)
+library(Rsamtools)
+library(GenomicAlignments)
+library(BiocParallel)
+library(DESeq2)
+library(pheatmap)
+library(ComplexHeatmap)
+library(clusterProfiler)
+library(enrichplot)
+library(tidyverse)
+```
+
+##Load the count file
+
+From this table we can see the first three columns of the count files have information for **Barcode**, its associated **ORF** and **Gene**. The other columns are different samples collected at different time points. 
+```{r}
+merged_barcode_counts <- read.table("../data/Barcode_counts", quote="\"", comment.char="")
+
+str(merged_barcode_counts)
+head(merged_barcode_counts)
+
+
+```
+##Editing the count table. 
+
+This step includes renaming the column, replacing NA's to 0, and removal of the last column that contains undetermined sequences. 
+```{r}
+#Rename columns of merged barcode counts
+colnames(merged_barcode_counts) <- c("Barcode", 
+                                     "ORF", 
+                                     "Gene", 
+                                     "H_0", 
+                                     "YPD_12H.1", 
+                                     "YPD_12H.2", 
+                                     "E2_12H.1", 
+                                     "E2_12H.2", 
+                                     "E2_12H_Flu.1", 
+                                     "E2_12H_Flu.2", 
+                                     "E2_12H_Flu.3",
+                                     "YPD_24H.1", 
+                                     "YPD_24H.2", 
+                                     "E2_24H_Flu.2", 
+                                     "E2_24H.2", 
+                                     "E2_24H_Flu.1", 
+                                     "E2_24H.1", 
+                                     "YPD_48H.1", 
+                                     "YPD_48H.2",
+                                     "E2_48H.1", 
+                                     "E2_48H.2",
+                                     "E2_48H_Flu.1", 
+                                     "E2_48H_Flu.2", 
+                                     "YPD_72H.1", 
+                                     "YPD_72H.2", 
+                                     "E2_72H.1", 
+                                     "E2_72H.2", 
+                                     "E2_72H_Flu.1", 
+                                     "E2_72H_Flu.2", 
+                                     "undetermined")
+
+#rearrange the columns - While performing experiment, the 24h sample for 100Est, 0flu and 100Est, 32 flu was interchanged because of labelling error, since, my values were also indicating this error confirmed by very high count in the E2 col which I expect in E2-flu column. I replaced that dataset. 
+merged_barcode_counts <- merged_barcode_counts %>%  dplyr ::select(Barcode, ORF,
+                                     Gene,
+                                     "H_0",
+                                     "YPD_12H.1", 
+                                     "YPD_12H.2", 
+                                     "E2_12H.1", 
+                                     "E2_12H.2", 
+                                     "E2_12H_Flu.1", 
+                                     "E2_12H_Flu.2", 
+                                     "E2_12H_Flu.3",
+                                     "YPD_24H.1", 
+                                     "YPD_24H.2", 
+                                     "E2_24H.1", 
+                                     "E2_24H.2", 
+                                     "E2_24H_Flu.1", 
+                                     "E2_24H_Flu.2",
+                                     "YPD_48H.1", 
+                                     "YPD_48H.2",
+                                     "E2_48H.1", 
+                                     "E2_48H.2",
+                                     "E2_48H_Flu.1", 
+                                     "E2_48H_Flu.2", 
+                                     "YPD_72H.1", 
+                                     "YPD_72H.2", 
+                                     "E2_72H.1", 
+                                     "E2_72H.2", 
+                                     "E2_72H_Flu.1", 
+                                     "E2_72H_Flu.2")
+
+                                    
+#Replace NA to 0 from column 4th to last
+merged_barcode_counts[, 4:29][is.na(merged_barcode_counts[, 4:29])] <- 0
+str(merged_barcode_counts)
+
+#filtering the rows with count values greater than 10
+#merged_barcode_counts <- merged_barcode_counts[merged_barcode_counts$E2_72H.1 > 1 & merged_barcode_counts$E2_72H_Flu.2 >10,]
+
+
+```
+
+##Create a metadata table
+
+This step includes analysis of the count data matrix and sticking the extracted information to a metadata table. For each experiment, we specify the conditions, timepoints, replicates, the number of barcode count detected, the mean and sd of the barcode counts detected, and total read counts. 
+```{r}
+#Column 1 of metadata is  
+experiments = colnames(merged_barcode_counts)[4:ncol(merged_barcode_counts)]
+
+#Column 2 of metadata is 
+timepoints = factor(c("0H", rep("12H", times=7), rep("24H", times =6), rep("48h", times =6), rep("72h", times=6)))
+
+#Column 3 of metadata is 
+conditions <- factor(c(rep("YPD", times=3), 
+                       rep("E2", times =2), 
+                       rep("E2-flu", times =3), 
+                       rep("YPD", times=2), 
+                       rep("E2", times =2),
+                       rep("E2-flu", times =2), 
+                       rep("YPD", times=2), 
+                       rep("E2", times =2),
+                       rep("E2-flu", times =2), 
+                       rep("YPD", times=2), 
+                       rep("E2", times =2), 
+                       rep("E2-flu", times =2)))
+#Here, YPD : No estradiol or fluconazole; E2 : 100nM estradiol and 0 ug/ml fluconazole; E2-flu: 100nM estradiol and 32 ug/ml fluconazole
+
+#column 4 of metadata is
+replicates <- factor(c(1,1,2,1,2,1,2,3,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2))
+
+#column 5 of metadata is the number of barcodes/genotypes detected in each experiments. This loop will count the number of times we detected any barcode, if suppose for a row we have a value greater than 0, it will take that column as 1, i.e., the read detected. It won't count the number
+
+barcode_counts <- numeric(ncol(merged_barcode_counts)-3) #create an empty vector, exclude the first three character columns and verify the result using length()
+for (i in 4:ncol(merged_barcode_counts)) {
+  barcode_counts[i-3] <- sum(merged_barcode_counts[,i]>0)
+} #loop through column 4 or 4th indices, which is why we provide i-3 everywhere in the for loop
+
+
+#column 6 of metadata is the means of barcode counts per experiment
+barcode_means <- numeric(ncol(merged_barcode_counts)-3)
+for(i in 4:ncol(merged_barcode_counts)){
+  barcode_means[i-3] <- mean(merged_barcode_counts[,i])
+}
+
+#column 7 of metadata is the sd of barcode counts per experiment
+barcode_sd <- numeric(ncol(merged_barcode_counts)-3)
+for(i in 4:ncol(merged_barcode_counts)){
+  barcode_sd[i-3] <- sd(merged_barcode_counts[,i])
+}
+
+#column 8 of metadata is the total number of sum of counts of each sample, i.e., the total number of read counts
+total_barcodes_per_experiment <- numeric(ncol(merged_barcode_counts)-3)
+for(i in 4:ncol(merged_barcode_counts)){
+  total_barcodes_per_experiment[i-3] <- sum(merged_barcode_counts[,i])
+}
+
+#Metadata
+Metadata <- data.frame(Experiments = experiments, Timepoints = timepoints, Conditions = conditions, Replicates= replicates, Number_of_barcodes_detected = barcode_counts, means_of_barcodes_detected = barcode_means, Standard_deviation_of_barcodes_detected = barcode_sd, Read_counts = total_barcodes_per_experiment)
+
+head(Metadata)
+```
+
+##The barcodes detected across the experiments
+
+From this histogram, we can see that nearly 5000 barcodes are detected across every experiments performed at different timepoints. Since, our genotype repository is nearly 5000, this indicates that sequencing was successful and most barcodes were detected. Moreover, the approximate uniformity across different experimental conditions also show that the experiment and sequencing was efficiently executed. 
+
+```{r}
+ggplot(data = Metadata, aes(x = Experiments, y = Number_of_barcodes_detected)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Timepoint", y = "Detected Barcodes") +
+  ggtitle("Histogram of Detected Barcodes by Timepoint")
+```
+
+##The read counts detected in each time points.
+
+This plot shows the sequencing depth for each experiment. As we can see many experiments/time points have total 5M reads but we also observe range from 3M reads to 6M reads in different time points. Two of the very different read count is at 12h when treated with estradiol and fluconazole and 24hr estradiol and fluconazole treated one. 
+```{r}
+ggplot(data = Metadata, aes(x = Experiments, y = Read_counts)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Timepoint", y = "Read Counts") +
+  ggtitle("Histogram of Detected Barcodes by Timepoint")
+```
+##Extract ERG11 count data fro all experiments/timepoints
+
+ERG11 is a lanosterol demethylase, it demethylates lanosterol to cholestrol in ergosterol biosynthetic pathway. Azoles block the demethylation of lanosterol and inturn inhibit the ergosterol synthesis. Mutations in ERG11 is associated with fluconazole resistance. It is reported that upregulation of ERG11 is associated with fluconazole resitance, since, it can effectively decrease intracellular drug accumulation(Paul 2019; https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6910709/). 
+
+In this analysis, ERG11 is our control and we expect an increase in ERG11 count as we treat the cells with estradiol and fluconazole. i.e., we expect that if the experiments was successful the overexpression of the ERG11 in the presence of E2 and Flu, will results in increase in abundance of the ERG11 genotype/strain that confers the increase in tolerance to fluconazole. Bascially, the increase in ERG11 expression desensitizes the cells to fluconazole. 
+
+In this analysis we expect and report to see an increase in abundance of ERG11 in the presence of both E2-flu when compared to only E2 and no E2 and Flu.
+
+```{r}
+erg11_counts <- merged_barcode_counts %>% 
+  dplyr::filter(Gene == "ERG11") %>% 
+  dplyr::select(4:ncol(merged_barcode_counts))
+
+ERG11_counts <- data.frame(t(erg11_counts))
+colnames(ERG11_counts) <- "ERG11_barcode_count"
+ERG11_counts <- rownames_to_column(ERG11_counts, var = "Experiments")
+
+#merge ERG11_counts to the metadata
+Metadata <- merge(Metadata, ERG11_counts, by = "Experiments")
+
+ggplot(Metadata, aes(x = Timepoints, y = ERG11_barcode_count, color = Conditions, group = Conditions)) +
+  geom_jitter() +
+  labs(title = "ERG11 counts variation across experiments and conditions",
+       x = "Experiment", y = "ERG11_counts") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_y_log10()
+```
+##Part 2
+
+##Objective: To report which genotype increased in abundance in the presence, of fluconazole out of 5000 genotypes assessed. 
+
+Step 1. We assessed the **genotype abundance** across **conditions** YPD, E2 and E2-YPD at each time point 12h, 24h, 48h, 72h. To do this we used the package deseq2 which will internally perform normalization and we can get the result for logfoldchange of different barcodes. We studied genotype in two contrasts such as *Flu v/s E2* and *YPD v/s E2*. The log2foldchange in the contrast 1, *Flu v/s E2* will show deseq results for the genotype aboundance in the presence of estradiol-fluconazole treated cells when compared to only estradiol treated cells. Similarly, in the contrast 2, *YPD v/s E2* will show deseq results for the genotype abundance in the YPD relative to estradiol. 
+
+In the following code chunk remove the character columns from the merge_barcode_count dataframe because we need columns with same datatype for the deseq analysis. 
+```{r}
+#Add rownames as ORF
+merge_col <- merged_barcode_counts[,-2]
+row.names(merge_col) <- merged_barcode_counts[,2]
+#remove the character columns 
+all_time_points <- merge_col[,-c(1:3)]
+
+#added by saaz 6/24/26
+merge_col2=merge_col
+merge_col2[,c(3:ncol(merge_col2))]=merge_col2[,c(3:ncol(merge_col2))]+1
+```
+
+
+##2. The following analysis reports the genotype abundance at 12h timepoint 
+
+For deseq analysis, we need 12h count table, we need conditions table or coldata and design set as ~conditions. 
+
+Using the following code chunk we obtained the log2fold change of genotpye in different conditions when compared to E2 as a reference. Although most highly abundant genes are not statistically significant. 
+If we sum the padj value for the differentially expressed genes/log2foldchange in Flu/E2 contrast it is 0, therefore we chose to not include this data in the heatmap step or in the comparison of genotype abundance across timepoint.
+```{r}
+#1.extract count data with the 12h timepoint
+merged_barcode_counts_12h <- merge_col2[,c(4:10)]
+h_12 <- (merged_barcode_counts_12h)
+#2. coldata
+col1 <- names(merged_barcode_counts_12h)
+condition = c("YPD", "YPD", "E2", "E2", "Flu", "Flu","Flu")
+df <- data.frame(col1, condition)
+rownames(df) <- df[,1]
+coldata <- subset(df, select = -col1)
+coldata
+#factor the condition column
+coldata$condition <- factor(coldata$condition)
+levels(coldata$condition)
+
+#3.Create a deseq object
+dds12 <- DESeqDataSetFromMatrix(countData = h_12,
+                              colData = coldata,
+                              design = ~ condition)
+dds12
+
+#4.Run deseq
+dds12 <- DESeq(dds12)
+res <- results(dds12)
+res
+
+#5.Contrast is used to extract the tables with Flu/E2 and YPD/E2, where E2 is the reference to compare
+resultsNames(dds12)
+res1 <- results(dds12, contrast=c("condition", "Flu", "E2"))
+res2 <- results(dds12, contrast=c("condition", "YPD", "E2"))
+
+
+#6. find the stastically significant differentially expressed genes
+sum(res1$pvalue < 0.05, na.rm = T)
+sum(res1$padj < 0.05, na.rm = T)
+
+#We did not find any significant fluconazole resistant genes at 12 hours
+```
+
+##3. Similarly, we repeat this analysis to report the genotype abundance at 24h timepoint
+
+Using the following code chunk we obtained the log2fold change of genotpye in different conditions when compared to E2 as a reference. Although most highly abundant genes are not statistically significant. 
+If we sum the padj value for the differentially expressed genes/log2foldchange in Flu/E2 contrast it is 0, therefore we chose to not include this data in the heatmap step or in the comparison of genotype abundance across timepoint
+```{r}
+#1.extract count data with the 24h timepoint
+merged_barcode_counts_24h <- merge_col2[,c(11:16)]
+h_24 <- (merged_barcode_counts_24h)
+#2. coldata
+col2 <- names(merged_barcode_counts_24h)
+condition2 = c("YPD", "YPD", "E2", "E2", "Flu", "Flu")
+df2 <- data.frame(col2, condition2)
+rownames(df2) <- df2[,1]
+coldata2 <- subset(df2, select = -col2)
+#factor the condition column
+coldata2$condition2 <- factor(coldata2$condition2)
+levels(coldata2$condition2)
+
+#3.Create a deseq object
+dds24 <- DESeqDataSetFromMatrix(countData = h_24,
+                              colData = coldata2,
+                              design = ~ condition2)
+dds24
+
+#4.Run deseq
+dds24 <- DESeq(dds24)
+res24 <- results(dds24)
+res24
+
+#5. Contrast is used to extract the tables with Flu/E2 and YPD/E2, where E2 is the reference to compare
+resultsNames(dds24)
+res24.1 <- results(dds24, contrast=c("condition2", "E2", "Flu"))
+res24 <- results(dds24, contrast=c("condition2", "E2", "YPD"))
+
+#6. find the stastically significant differentially expressed genes
+sum(res24.1$pvalue < 0.05, na.rm = T)
+sum(res24.1$padj < 0.05, na.rm = T)
+
+#We did not find any significant fluconazole resistant genes at 24 hours
+```
+
+##4. Report the genotype abundance at 48h timepoint
+
+Using the following code chunk we obtained the log2fold change of genotpye in different conditions when compared to E2 as a reference. Many highly abundant genes are statistically significant. 
+
+If we sum the padj value for the differentially expressed genes/log2foldchange for Flu/E2, it is 4042
+```{r}
+#1.extract count data with the 48h timepoint
+h_48 <- merge_col2[,c(17:22)]
+
+#2. coldata
+condition3 = factor(c("YPD", "YPD", "E2", "E2", "Flu", "Flu"))
+coldata3 <- data.frame(row.names = names(h_48), condition3)
+
+#factor the condition column
+levels(coldata3$condition3)
+
+#3.Create a deseq object
+dds48 <- DESeqDataSetFromMatrix(countData = h_48,
+                              colData = coldata3,
+                              design = ~ condition3)
+dds48
+
+#4.Run deseq
+dds48 <- DESeq(dds48)
+res48 <- results(dds48)
+res48
+#5. Contrast is used to extract the tables with Flu/E2 and YPD/E2, where E2 is the reference to compare
+resultsNames(dds48)
+res48.1 <- results(dds48, contrast=c("condition3", "Flu", "E2"))
+res48.2 <- results(dds48, contrast=c("condition3", "YPD", "E2"))
+
+#6. find the stastically significant differentially expressed genes
+sum(res48.1$padj < 0.05, na.rm = T) #4042
+sum(res48.2$padj < 0.05, na.rm = T) #1483
+
+res48.1["YMR202W",]
+
+plotMA(res48.1)
+
+```
+
+##5. Report the genotype abundance at 72h timepoint
+
+Using the following code chunk we obtained the log2fold change of genotpye in different conditions when compared to E2 as a reference. Many highly abundant genes are statistically significant. 
+
+If we sum the padj value for the differentially expressed genes/log2foldchange for Flu/E2, it is 1745
+```{r}
+#1.extract count data with the 72h timepoint
+h_72  <- merge_col2[,c(23:28)]
+
+h_72["YMR202W",]
+#2. coldata
+condition4 = factor(c("YPD", "YPD", "E2", "E2", "Flu", "Flu"))
+coldata4 <- data.frame(row.names = names(h_72), condition4)
+
+#factor the condition column
+levels(coldata4$condition4)
+
+#3.Create a deseq object
+dds72 <- DESeqDataSetFromMatrix(countData = h_72,
+                              colData = coldata4,
+                              design = ~ condition4)
+dds72
+
+#4.Run deseq
+dds72 <- DESeq(dds72)
+res72 <- results(dds72)
+res72
+#5. Contrast is used to extract the tables with Flu/E2 and YPD/E2, where E2 is the reference to compare
+resultsNames(dds72)
+res72.1 <- results(dds72, contrast=c("condition4", "Flu", "E2"))
+res72.2 <- results(dds72, contrast=c("condition4", "YPD", "E2"))
+
+#6. find the stastically significant differentially expressed genes
+sum(res72.1$padj < 0.05, na.rm = T) #1745
+sum(res72.2$padj < 0.05, na.rm = T) #0
+
+res72.1["YMR202W",]
+
+res72["YMR202W",]
+```
+
+##6 Heatmap for fluconazole v/s Estradiol across different timepoints. 
+
+The objective for this heat map is to find which genotypes when overexpressed in the presence of estradiol show increase in abundance in the presence of fluconazole which shows that they are selected for. Essentially which are the high abundance and low abundance genotype which are present in both 48h and 72h Estradiol-fluconazole treated cells relative to only estradiol treated cells.
+Each panel in this heatmap tells the the genotype abundant at 72h or at 48h or at 0h when Estradiol-fluconazole treated cells are contrasted to only estradiol treated cells. 
+Red represents increase in abundance. Inference: Overexpression of the red genotype promotes desensitization to fluconazole as a result it confers increased tolerance to fluconazole. 
+Blue represents decrease in abundance. Inference: Overexpression of the blue genotype promotes fitness defect i.e., it sensitizes the cells to fluconazole
+
+
+#Heatmap for statistically significant log2foldchange values
+The following plot describes the logfold2change of genotypes across the three timepoints in fLu v/s E2 contrast. It only contains gene which are statistically significant i.e., padj < 0.05 & log2foldpvalue>1.5. 
+
+```{r}
+#select the statistically significant log2foldchange values. changed 6/24/26 by saaz.
+res48.1_filtered_for_statistical_significance <- res48.1[!is.na(res48.1$padj) & res48.1$padj < 0.05 & abs(res48.1$log2FoldChange) > 1.5, ]
+
+#res48.1_filtered_for_statistical_significance <- res48.1[is.na(res48.1$padj) | res48.1$padj < 0.05, ]
+
+result_48.1 <- data.frame(row.names = rownames(res48.1_filtered_for_statistical_significance), log2FoldChange = res48.1_filtered_for_statistical_significance$log2FoldChange)
+
+
+#select the statistically significant log2foldchange values, changed 6/24/26 by saaz.
+res72.1_filtered_for_statistical_significance <- res72.1[!is.na(res72.1$padj) & res72.1$padj < 0.05 & abs(res72.1$log2FoldChange) > 1.5, ]
+result_72.1 <- data.frame(row.names = rownames(res72.1_filtered_for_statistical_significance), log2FoldChange = res72.1_filtered_for_statistical_significance$log2FoldChange)
+
+#To differentiate the table with 48h values with 72 hours value we assign a column with time information
+result_48.1$time <- 48
+result_72.1$time <- 72
+
+#convert gene/ORF column to a new column gene
+result_48.1$gene <- rownames(result_48.1)
+rownames(result_48.1) <- NULL
+
+result_72.1$gene <- rownames(result_72.1)
+rownames(result_72.1) <- NULL
+
+
+#merge the two dataframe using the gene column
+Significant_genes_48_72 <- merge(result_48.1, result_72.1, by="gene", all = TRUE)
+#replace the NA values with 0
+Significant_genes_48_72[is.na(Significant_genes_48_72)] <- 0
+
+
+#Create a heatmap
+rownames(Significant_genes_48_72) <- Significant_genes_48_72$gene
+heatmap_genes_48_72 <- Significant_genes_48_72[,-c(1,3,5)]
+
+
+heatmap_genes_48_72 <- heatmap_genes_48_72 %>% 
+  mutate(time_0h = 0)
+
+colnames(heatmap_genes_48_72) <- c("time_48h", "time_72h", "time_0h")
+#rearrange the columns
+heatmap_genes_48_72 <-heatmap_genes_48_72 %>%  dplyr::select(time_0h,
+                                                     time_48h,
+                                                     time_72h)
+                                    
+#hierarchical clustering to cluster the logfold change, it makes the heatmap more meaningful
+hclust <- hclust(dist(heatmap_genes_48_72), method = "complete")
+#heatmap
+Heatmap(heatmap_genes_48_72, cluster_rows = hclust, show_row_names = F)
+
+#rearrange the columns based on the decreasing order of 72h because we are looking for genotype that increased in abundance in the presence of fluconazole treatment. 72h is the longest time we experimented. 
+decreasing_order_of_significant_genes <- heatmap_genes_48_72[ order(-heatmap_genes_48_72$time_72h), ]
+
+#add common gene name column to this table
+gene_name <- merged_barcode_counts[,2:3]
+rownames(gene_name) <-gene_name[,1]
+decreasing_order_of_significant_genes$gene <- gene_name[row.names(decreasing_order_of_significant_genes), "Gene"]
+
+
+
+
+#View the significant genes in decreasing order
+View(decreasing_order_of_significant_genes)
+```
+
+
+```
+Q) What are the top significant genes in this analysis?
+Ans: Some of the top significant genes are:
+1. Most abundant -- FLR1 -- Fluconazole resistance
+2. ERG11
+3. PDR5
+4. YAP1
+5. ERG13
+
+```
+
+###PART 3 -- Extract important genes and plot the change in raw count across the experimental time points
+
+#plot the results for specific genes -- 
+
+Extract the top hit gene counts from the raw data table, merge it to the metadata for the plotting purposes.
+```{r}
+#filter the top hits
+Gene.counts <- filter(merged_barcode_counts[,-(1:2)], Gene %in% c("FLR1", "ERG11", "PDR5", "YAP1", "ERG13", "MGE1", "PDR3", "SOK1", "MDJ1", "MRS4", "SKS1", "RPL27A", "NUP57", "RTS2", "STP4", "MSN5", "VAS1", "UPC2", "AUS1", "FRE3", "HSP104"))
+#transpose for ggplot
+Gene_counts <- setNames(data.frame(t(Gene.counts[,-1])), Gene.counts[,1])
+Gene_counts <- rownames_to_column(Gene_counts, var = "Experiments")
+#merge with metadata
+Metadata <- merge(Metadata, Gene_counts, by = "Experiments")
+```
+
+#Data trimming to remove anomaly that occured due to technical error
+```{r}
+#Step 1 remove the E2_12H_Flu with 
+Metadata <- Metadata[-c(1:2), ]
+
+Metadata <- Metadata[-4,]
+```
+
+
+
+
+
+#Visualization of the raw counts of the top hit dataset
+
+These plots show the changes in the gene count of the top hits w.r.t to the timepoint. Our results showcase that all the genes have consistent enrichment in the E2-YPD condition as we increase the time of treatment
+```{r}
+#visualization
+#ERG11
+
+p1 <- ggplot(Metadata, aes(x = Timepoints, y = ERG11, color = Conditions, group = Conditions)) +
+  geom_jitter() +
+  labs(title = "ERG11 counts Variation",
+       x = "Experiment", y = "ERG11 counts") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+        axis.text.y = element_text( size = 18),
+        axis.title = element_text(size = 20),
+        plot.title = element_text(size = 20),
+        legend.title = element_text(size=20),
+        legend.text = element_text(size=16))+
+  scale_y_log10()+
+  geom_smooth(method = "lm", alpha = .15, aes(fill = Conditions))
+
+#FLR1
+p2 <- ggplot(Metadata, aes(x = Timepoints, y = FLR1, color = Conditions, group = Conditions)) +
+  geom_jitter() +
+  labs(title = "FLR1 counts Variation",
+       x = "Experiment", y = "FLR1 counts") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+        axis.text.y = element_text( size = 18),
+        axis.title = element_text(size = 20),
+        plot.title = element_text(size = 20),
+        legend.title = element_text(size=20),
+        legend.text = element_text(size=16))+
+  scale_y_log10()+
+  geom_smooth(method = "lm", alpha = .15, aes(fill = Conditions))
+
+#PDR5
+p3 <- ggplot(Metadata, aes(x = Timepoints, y = PDR5, color = Conditions, group = Conditions)) +
+  geom_jitter() +
+  labs(title = "PDR5 counts Variation",
+       x = "Experiment", y = "PDR5 counts") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+        axis.text.y = element_text( size = 18),
+        axis.title = element_text(size = 20),
+        plot.title = element_text(size = 20),
+        legend.title = element_text(size=20),
+        legend.text = element_text(size=16))+
+  scale_y_log10()+
+  geom_smooth(method = "lm", alpha = .15, aes(fill = Conditions))
+
+#YAP1
+p4 <- ggplot(Metadata, aes(x = Timepoints, y = YAP1, color = Conditions, group = Conditions)) +
+  geom_jitter() +
+  labs(title = "YAP1 counts Variation",
+       x = "Experiment", y = "YAP1 counts") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+        axis.text.y = element_text( size = 18),
+        axis.title = element_text(size = 20),
+        plot.title = element_text(size = 20),
+        legend.title = element_text(size=20),
+        legend.text = element_text(size=16))+
+  scale_y_log10()+
+  geom_smooth(method = "lm", alpha = .15, aes(fill = Conditions))
+
+#MGE1
+p5 <- ggplot(Metadata, aes(x = Timepoints, y = MGE1, color = Conditions, group = Conditions)) +
+  geom_jitter() +
+  labs(title = "MGE1 counts Variation",
+       x = "Experiment", y = "MGE1 counts") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+        axis.text.y = element_text( size = 18),
+        axis.title = element_text(size = 20),
+        plot.title = element_text(size = 20),
+        legend.title = element_text(size=20),
+        legend.text = element_text(size=16))+
+  scale_y_log10()+
+  geom_smooth(method = "lm", alpha = .15, aes(fill = Conditions))
+
+#pdf("filename1.pdf", width = 16, height = 16)
+gridExtra::grid.arrange(p1, p2, p3, p4, p5, nrow =2)
+#dev.off()
+```
+Sensitivity
+```{r}
+#AUS1
+p6 <- ggplot(Metadata, aes(x = Timepoints, y = AUS1, color = Conditions, group = Conditions)) +
+  geom_jitter() +
+  labs(title = "AUS1 counts Variation",
+       x = "Experiment", y = "AUS1 counts") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+        axis.text.y = element_text( size = 18),
+        axis.title = element_text(size = 20),
+        plot.title = element_text(size = 20),
+        legend.title = element_text(size=20),
+        legend.text = element_text(size=16))+
+  scale_y_log10() +
+  geom_smooth(method = "lm", alpha = .15, aes(fill = Conditions))
+
+#VMA16
+p7 <- ggplot(Metadata, aes(x = Timepoints, y = FRE3, color = Conditions, group = Conditions)) +
+  geom_jitter() +
+  labs(title = "FRE3 counts Variation",
+       x = "Experiment", y = "FRE3 counts") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+        axis.text.y = element_text( size = 18),
+        axis.title = element_text(size = 20),
+        plot.title = element_text(size = 20),
+        legend.title = element_text(size=20),
+        legend.text = element_text(size=16))+
+  scale_y_log10() +
+  geom_smooth(method = "lm", alpha = .15, aes(fill = Conditions))
+
+p8 <- ggplot(Metadata, aes(x = Timepoints, y = HSP104, color = Conditions, group = Conditions)) +
+  geom_jitter() +
+  labs(title = "HSP104 counts Variation",
+       x = "Experiment", y = "HSP104 counts") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+        axis.text.y = element_text( size = 18),
+        axis.title = element_text(size = 20),
+        plot.title = element_text(size = 20),
+        legend.title = element_text(size=20),
+        legend.text = element_text(size=16))+
+  scale_y_log10() +
+  geom_smooth(method = "lm", alpha = .15, aes(fill = Conditions))
+
+#pdf("filename.pdf", width = 8, height = 12)
+gridExtra::grid.arrange(p6,p7,p8)
+#dev.off() 
+
+```
+Added by Saaz 6/24/26
+
+```{r visualisationforpaper}
+library(readxl)
+library(rapportools)
+library(openxlsx)
+library(forcats)
+library(ggplot2)
+library(gghighlight)
+library(ggrepel)
+
+Gene_annotation <- read_excel("GCF_000146045.2_R64_annotation.xlsx")
+Sig_hits=decreasing_order_of_significant_genes
+
+#Annotate - annotate each hit gene with the Chromosome it is on
+Sig_hits$Locus_tag=rownames(Sig_hits)
+
+l=length(Sig_hits$gene)
+
+relchr=vector(length=l)
+
+for (i in (1:l)) {
+  relname=Sig_hits$Locus_tag[i]
+  relrow=which(Gene_annotation$Locus_tag==relname)
+  if (is.empty(relrow)) {
+    relchr[i]=FALSE
+  } else {
+    relchr[i]=Gene_annotation$Chromosome[relrow]
+  }
+}
+
+Sig_hits$Chr=relchr
+
+#Showing the nunber of sig hits on each chr
+table(Sig_hits$Chr)
+
+#Plot 72h vs 48h hits, with only Chr 8 hits coloured
+ggplot(Sig_hits,aes(x=time_48h,y=time_72h))+geom_point(aes(color=Chr))+gghighlight(Chr=="VIII")+theme_bw()
+
+#Plot 72h results alone for all chromosomes separately
+Sig_hits_focus=Sig_hits
+Sig_hits_focus$Chrfilter="Other Chr"
+Sig_hits_focus$Chrfilter[which(Sig_hits_focus$Chr=="VIII",)]="Chr VIII"
+Sig_hits_focus$Genefilter=Sig_hits_focus$Chrfilter
+Sig_hits_focus$Genefilter[1:5]="Sighit"
+
+Sig_hits_focus$Chrnumber=as.roman(Sig_hits_focus$Chr)
+Sig_hits_focus$Chrnumber=as.numeric(Sig_hits_focus$Chrnumber)
+Sig_hits_focus=Sig_hits_focus[!is.na(Sig_hits_focus$Chrnumber),]
+Sig_hits_focus=Sig_hits_focus[abs(Sig_hits_focus$time_72h)>1.5,]
+
+Sig_hits_bychr=ggplot(Sig_hits_focus,aes(x=fct_inseq(as.factor((Chrnumber))),y=time_72h,color=Chr)) + geom_jitter(width=0.1,show.legend=FALSE) + theme_bw() + ylab("log2 abundance (YPD+Fluconazole / YPD)") + xlab("Chromosome") + theme(legend.title=element_blank(),text=element_text(size=13,face="bold")) + guides(color="none", size="none") + geom_text_repel(aes(label=ifelse(Genefilter=="Sighit",as.character(gene),'')),hjust=-0.2,vjust=0.1)
+
+Sig_hits_bychr
+
+ggsave("./Sig_hits_bychr.pdf", plot = Sig_hits_bychr, device = "pdf")
+ggsave("./Sig_hits_bychr.tiff", plot = Sig_hits_bychr, device = "tiff")
+
+```
