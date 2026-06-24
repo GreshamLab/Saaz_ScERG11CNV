@@ -1,0 +1,99 @@
+---
+title: "Growth curve analysis using the Tecan 96-well plate reader"
+author: "Saaz Sakrikar, modifying code from Grace Avecilla and David Gresham"
+date: "Last compiled on `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: paged
+---
+
+The experiment below includes: 2 strains of S. cerevisiae, grown in 6 different concs of FLC (including no FLC). The strains are DGY3612 (MATa/alpha mCherry-HygB near ERG11/mCitrine-KanMX near ERG11) and DGY3 (MATa/alpha). I am gathering data from diploid ancestral/naive strain to obtain a fluconazole IC50 for diploid S. cerevisiae.
+
+The data comprise 288 OD measurements that were acquired over a 24 hour period.
+
+# Growth curves requirements
+
+
+* OD data from the Tecan in a csv with each well's data in a column, the first row contained the well names, and the first column is time in seconds 
+
+* A sample sheet, with the four required columns: __Well__, __Sample__,	__Bio_rep__,	__Tech_rep__
+  + The Well column did not have 0s in the well names (i.e. A1, not A01)
+  + For blank wells, we put 'B' in the Sample column of the sample sheet
+  + For blank wells, we put 'NA' for all other column values
+  + Additional columns are possible. In this case, "Strain", "Type" (2-copy or 1-copy (in relation to ERG11)), "FLC_conc".
+
+
+
+```{r input, warning=FALSE,message=FALSE}
+library(tidyverse)
+library(growthcurver)
+
+#theme_set(theme_minimal())
+
+cycles = 288
+samplesheet = read_csv("Apr29_meta.csv")
+#knitr::kable(samplesheet)
+
+data_od = read_csv("Apr29_growth.csv",skip = 0, n_max = cycles) 
+colnames(data_od)[1] <- "time"
+#convert time to hrs from seconds
+data_od$time <- as.numeric(data_od$time)/60/60
+
+#knitr::kable(data_od)
+
+
+# output csv name, used at the end only.
+out = 'output.csv'
+
+```
+
+Transformation of data for plotting
+
+```{r setup}
+data_od_for_plot <- data_od %>% 
+  pivot_longer(cols = -time, names_to = "well", values_to = "od") %>% 
+  left_join(samplesheet, by = c("well" = "Well")) %>%
+  unite(Sample_Well, well, Sample, sep = " ", remove = FALSE)
+
+```
+
+## Individual Growth Profiles
+
+We  plot the entire dataset arrayed in 96 well format it appears on the Tecan for visual inspection.  This allows us to easily identify any wells that should be excluded.
+
+```{r all_well_plot}
+data_od_for_plot %>%
+  mutate(Sample_Well = str_replace(Sample_Well, "(?<![0-9])([0-9])(?![0-9])", "0\\1")) %>%
+  ggplot(aes(time, od, color = as.factor(Type))) +
+  geom_line() +
+  facet_wrap(~Sample_Well, ncol=12) +
+  xlab("Time (hrs)") + scale_y_continuous(breaks=c(0, 2)) + scale_x_continuous(breaks=c(0, 12, 24)) + theme_bw()
+
+```
+
+#Obtain growth paramaters using logisitc curve
+
+```{r analysis}
+gc_out <- SummarizeGrowthByPlate(data_od, 
+                                 plot_fit = FALSE) %>% 
+  left_join(samplesheet, by = c("sample" = "Well")) %>%
+  rename(well = sample, sample = Sample)
+
+#knitr::kable(gc_out)
+
+gc_sampleout=gc_out[!is.na(gc_out$Strain),]
+write.csv(gc_sampleout,paste(out))
+```
+
+Plot the growth rate r and area under the curve AUC
+
+```{r plotting}
+
+ggplot(gc_sampleout,aes(x=Strain,y=r)) + geom_dotplot(binaxis="y", stackdir="center", dotsize=2, aes(fill=Strain, color=Strain)) + facet_wrap(~FLC_conc) + theme_bw() + ggtitle("Growth rate r at different FLC concs")
+
+#ggplot(gc_sampleout,aes(x=Type,y=t_gen)) + geom_dotplot(binaxis="y", stackdir="center", dotsize=2, aes(fill=Strain, color=Strain)) + facet_wrap(~FLC_conc) + theme_bw() + ggtitle("Doubling time tgen at different FLC concs")
+
+ggplot(gc_sampleout,aes(x=Strain,y=auc_l)) + geom_dotplot(binaxis="y", stackdir="center", dotsize=2, aes(fill=Strain, color=Strain)) + facet_wrap(~FLC_conc) + theme_bw() + ggtitle("Area under the curve AUC at diff FLC concs")
+
+ggplot(gc_sampleout,aes(x=as.factor(FLC_conc),y=r)) + geom_dotplot(binaxis="y", stackdir="center", aes(fill=Strain, color=Strain)) + facet_wrap(~Type) + theme_bw() + ggtitle("Growth rate r for diff strain types")
+```
