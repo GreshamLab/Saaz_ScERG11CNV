@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains R code, analysis scripts, and supporting data for research investigating the experimental evolution of *ERG11* copy number variants (CNVs) in *Saccharomyces cerevisiae* under fluconazole selection pressure. The repository includes reproducible analyses, visualizations, and raw datasets necessary for generating all main and supplementary figures.
+This repository contains R code, analysis scripts, and supporting data for research investigating the experimental evolution of *ERG11* copy number variants (CNVs) in *Saccharomyces cerevisiae* under fluconazole selection.
 
 ## Repository Structure
 
@@ -10,22 +10,21 @@ This repository contains R code, analysis scripts, and supporting data for resea
 
 | Script | Figure(s) | Description | Input Data |
 |--------|-----------|-------------|------------|
-| `All_outputs_analysis_2026Jan9.Rmd` | Fig. 1C | Growth curve analysis of control and ancestral strains | `Control_growthcurve_output_2026Jan9.xlsx` |
-| `All_outputs_analysis_2026Mar27.Rmd` | Fig. 3 | Growth rate comparison between CNV and control strains | `All_growthcurve_output_2025Apr7.xlsx` |
-| `Allruns_timecourse_presentationgraphs_6June2025.Rmd` | Fig. 2, Fig. S2 | CNV evolution timecourse visualization from gating data | `Apr2025_allruns.xlsx` |
-|`Barcode_abundance_analysis_mod.Rmd` | Fig. 5 | Analysing Bar-seq data | `Barcode_counts` |
-| `Doseresponse_all_Aug6.Rmd` | Fig. S3 | IC50 estimation from control strain dose-response data | `All_growthcurve_output-Aug6.xlsx` |
+| `Fig3_growth_rate_comparison.Rmd` | Fig. 3 | Growth rate comparison between CNV and control strains | `All_growthcurve_output_2025Apr7.xlsx` |
+| `Fig2_S2_timecourse_presentation.Rmd` | Fig. 2, Fig. S2 | CNV evolution timecourse visualization from gating data | `Apr2025_allruns.xlsx` |
+| `Fig5_barcode_abundance.Rmd` | Fig. 5 | Analysing Bar-seq data | `Barcode_counts` |
+| `FigS3_doseresponse_analysis.Rmd` | Fig. S3 | IC50 estimation from control strain dose-response data | `All_growthcurve_output-Aug6.xlsx` |
 
 ### Supplementary Visualization Scripts
 
-The perbase.txt files used as input for some of these codes are ~250MB in size and ccannot be uploaded here. They can be generated as described in the Methods section of the manuscript, from sorted BAM files, using the bedtools genomecov command with the -d flag. 
+The perbase.txt files used as input for some of these codes are ~250MB in size and cannot be uploaded here. They can be generated as described in the Methods section of the manuscript, from sorted BAM files using bedtools genomeCoverageBed.
 
 | Script | Figure(s) | Description | Input Data |
 |--------|-----------|-------------|------------|
-| `Depth_visualisation_comparison_May82025.Rmd` | Fig. 4 | Genome-wide read depth visualization: ancestral strain vs. CNV strain | perbase files |
-| `perbase_groupvisualisation-allcond_selected.Rmd` | Fig. S4 | Comparative genome-wide read depth visualization of representative ERG11 CNV strains | perbase files |
-| `perbase_groupvisualisation-FLC16GAP1_selected.Rmd` | Fig. S5 | Comparative genome-wide read depth visualization of representative Chr XI CNV strains | perbase files
-| `Selected_genomevisualisation.Rmd` | Fig. S1 | Visualising the genomic context at the native ERG11 locus on Chr VIII and the GAP1 locus on Chr XI | `ERG11contextcombined.csv` |
+| `Fig4_depth_visualisation.Rmd` | Fig. 4 | Genome-wide read depth visualization: ancestral strain vs. CNV strain | perbase files |
+| `FigS4_perbase_comparison_allcond.Rmd` | Fig. S4 | Comparative genome-wide read depth visualization of representative ERG11 CNV strains | perbase files |
+| `FigS5_perbase_comparison_FLC16GAP1.Rmd` | Fig. S5 | Comparative genome-wide read depth visualization of representative Chr XI CNV strains | perbase files |
+| `FigS1_genome_visualisation.Rmd` | Fig. S1 | Visualising the genomic context at the native ERG11 locus on Chr VIII and the GAP1 locus on Chr XI | `ERG11context_combined.csv` |
 
 ### Example and Utility Scripts
 
