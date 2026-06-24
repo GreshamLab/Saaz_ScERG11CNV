@@ -1,7 +1,0 @@
----
-title: "Perbase group visualisation - FLC16 GAP1"
-author: "Saaz Sakrikar"
-output: html_document
----
-
-This file contains comparative genome-wide read depth visualization of representative Chr XI CNV strains.
