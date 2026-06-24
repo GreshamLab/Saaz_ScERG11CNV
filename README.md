@@ -1,4 +1,4 @@
-This Readme has been generated with the help of Github's inbuilt copilot. Most code was written by Saaz Sakrikar, Akriti Agarwal, or David Gresham. Codes written with the help of LLMs have a note within them.
+This Readme has been generated with the help of Github's inbuilt copilot. Most code was written by Saaz Sakrikar, Akriti Agarwal, or David Gresham. Codes written with the help of LLMs have a note indicating this.
 
 # ERG11 Copy Number Variant Evolution in *Saccharomyces cerevisiae*
 
