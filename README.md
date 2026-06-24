@@ -19,7 +19,7 @@ This repository contains R code, analysis scripts, and supporting data for resea
 
 ### Supplementary Visualization Scripts
 
-The perbase.txt files used as input for some of these codes are ~250MB in size and cannot be uploaded here. They can be generated as described in the Methods section of the manuscript, from sorted BAM files using bedtools genomeCoverageBed.
+The perbase.txt files used as input for some of these codes are ~250MB in size and cannot be uploaded here. They can be generated as described in the Methods section of the manuscript, from sorted BAM files using bedtools genomecov with the -d flag.
 
 | Script | Figure(s) | Description | Input Data |
 |--------|-----------|-------------|------------|
