@@ -165,4 +165,10 @@ Evolved8test=Evolved8test[Evolved8test$FLC_conc==8,]
 Evolved8test=Evolved8test[!is.na(Evolved8test$r),]
 t.test(r ~ Type, data = Evolved8test, alternative = "greater")
 
+#Comparing all CNV strains to control strain in no FLC
+FLC0test=Commonconcs_goodbatches[Commonconcs_goodbatches$Type=="Control" | Commonconcs_goodbatches$Type=="CNV",] 
+FLC0test=FLC0test[FLC0test$FLC_conc==0,]
+FLC0test=FLC0test[!is.na(FLC0test$r),]
+t.test(r ~ Type, data = FLC0test)
+
 ```
