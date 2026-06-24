@@ -13,7 +13,7 @@ This repository contains R code, analysis scripts, and supporting data for resea
 | `All_outputs_analysis_2026Jan9.Rmd` | Fig. 1C | Growth curve analysis of control and ancestral strains | `Control_growthcurve_output_2026Jan9.xlsx` |
 | `All_outputs_analysis_2026Mar27.Rmd` | Fig. 3 | Growth rate comparison between CNV and control strains | `All_growthcurve_output_2025Apr7.xlsx` |
 | `Allruns_timecourse_presentationgraphs_6June2025.Rmd` | Fig. 2, Fig. S2 | CNV evolution timecourse visualization from gating data | `Apr2025_allruns.xlsx` |
-|`Barcode_abundance_analysis_mod.Rmd | Fig. 5 | Analysing Bar-seq data | `Barcode_counts` |
+|`Barcode_abundance_analysis_mod.Rmd` | Fig. 5 | Analysing Bar-seq data | `Barcode_counts` |
 | `Doseresponse_all_Aug6.Rmd` | Fig. S1 | IC50 estimation from control strain dose-response data | `All_growthcurve_output-Aug6.xlsx` |
 
 ### Supplementary Visualization Scripts
