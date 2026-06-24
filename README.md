@@ -1,3 +1,5 @@
+This Readme has been generated with the help of Github's inbuilt copilot. Most code was written by Saaz Sakrikar, Akriti Agarwal, or David Gresham. Codes written with the help of LLMs have a note within them.
+
 # ERG11 Copy Number Variant Evolution in *Saccharomyces cerevisiae*
 
 ## Overview
@@ -60,5 +62,3 @@ The repository includes the following input datasets:
 If you use code or data from this repository, please cite the associated publication(s) and this repository.
 
 ---
-
-**Contact**: For questions regarding this research, please open an issue in this repository.
