@@ -24,7 +24,7 @@ The perbase.txt files used as input for some of these codes are ~250MB in size a
 |--------|-----------|-------------|------------|
 | `FigS1_genome_visualisation.Rmd` | Fig. S1 | Visualising the genomic context at the native ERG11 locus on Chr VIII and the GAP1 locus on Chr XI | `ERG11context_combined.csv` |
 | `Fig4_depth_visualisation.Rmd` | Fig. 4, 6B | Genome-wide read depth visualization: ancestral strain vs. CNV strain | perbase files |
-| `FigS4_perbase_comparison_allcond.Rmd` | Fig. S4, S5, S6 | Genome-wide read depth of representative strains | perbase files |
+| `FigS5_perbase_comparison_allcond.Rmd` | Fig. S5, S6, S7 | Genome-wide read depth of representative strains | perbase files |
 
 ### Example and Utility Scripts
 
