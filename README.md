@@ -38,7 +38,7 @@ The perbase.txt files used as input for some of these codes are ~250MB in size a
 
 The repository includes the following input datasets:
 - `Control_growthcurve_output_2026Jan9.xlsx` — Control strain growth curve data
-- `All_growthcurve_output_2025Apr7.xlsx` — Growth curve data for CNV and control strains
+- `All_growthcurve_output_Oct1_2026.xlsx` — Growth curve data for CNV and control strains
 - `All_growthcurve_output-Aug6.xlsx` — Dose-response growth curve data
 - `Apr2025_allruns.xlsx` — Gating data for CNV evolution timecourse
 - `Apr29_meta.csv`, `Apr29_growth.csv` — Example batch growth data
