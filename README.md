@@ -33,6 +33,7 @@ The perbase.txt files used as input for some of these codes are ~250MB in size a
 | `growth_curves_Apr29.Rmd` | Example of raw growth data analysis using a single experimental batch | Input: `Apr29_meta.csv`, `Apr29_growth.csv` |
 | `lea_coulson_m.R` | Mutation rate estimation utility for FACu fluctuation assays (calculates *m* from median mutant colonies) |
 | `plotprocessing_passage.R` | Dependency for timecourse figure generation |
+| `quantify_pipeline_2.R` | Extracting barcode count data from sequencing files |
 
 ## Data Files
 
@@ -42,6 +43,7 @@ The repository includes the following input datasets:
 - `All_growthcurve_output-Aug6.xlsx` — Dose-response growth curve data
 - `Apr2025_allruns.xlsx` — Gating data for CNV evolution timecourse
 - `Apr29_meta.csv`, `Apr29_growth.csv` — Example batch growth data
+- `yeti_collection.csv` - Strain information for barcoded YETI strains
 
 ## Requirements
 
