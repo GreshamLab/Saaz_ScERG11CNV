@@ -14,6 +14,7 @@ This repository contains R code, analysis scripts, and supporting data for resea
 | `Fig2_S2_CNVtimecourse.Rmd` | Fig. 2, S2 | CNV evolution timecourse visualization from gating data | `Apr2025_allruns.xlsx` |
 | `Fig3_growthrates.Rmd` | Fig. 3, S4 | Growth rate comparison between CNV and control strains | `All_growthcurve_output_Oct1_2026.xlsx` |
 |`Fig5_barcodeabundance.Rmd` | Fig. 5 | Analysing Bar-seq data | `Barcode_counts` |
+|`evo_simulations.ipynb` | Fig. 7, S8 | Evolutionary simulations | none |
 | `FigS3_doseresponse_analysis.Rmd` | Fig. S3 | IC50 estimation from control strain dose-response data | `All_growthcurve_output_Oct1_2026.xlsx` |
 
 ### Supplementary Visualization Scripts
