@@ -32,7 +32,7 @@ The perbase.txt files used as input for some of these codes are ~250MB in size a
 | Script | Description |
 |--------|-------------|
 | `growth_curves_Apr29.Rmd` | Example of raw growth data analysis using a single experimental batch | Input: `Apr29_meta.csv`, `Apr29_growth.csv` |
-| `lea_coulson_m.R` | Mutation rate estimation utility for FACu fluctuation assays (calculates *m* from median mutant colonies) |
+| `FACu_rSalvador_tests.Rmd` | Mutation rate estimation utility for FACu fluctuation assays (calculates *m* from raw mutant colonies) |
 | `plotprocessing_passage.R` | Dependency for timecourse figure generation |
 | `quantify_pipeline_2.R` | Extracting barcode count data from sequencing files |
 
