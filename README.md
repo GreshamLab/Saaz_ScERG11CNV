@@ -48,8 +48,8 @@ The repository includes the following input datasets:
 
 ## Requirements
 
-- **Language**: R
-- All scripts are written in R/R Markdown format
+- **Language**: R, Python
+- All scripts are written in R/R Markdown/IPython notebook format
 
 
 ---
