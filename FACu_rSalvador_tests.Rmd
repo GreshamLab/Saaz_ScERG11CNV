@@ -1,0 +1,104 @@
+---
+title: "FACu fluctuation assay: noFLC vs FLC16 and FLC32 (rSalvador)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(rsalvador)   # needs hypergeo for the *.plating functions
+library(readxl)
+library(ggplot2)
+```
+
+## Settings
+
+```{r settings}
+xlsx_file <- "TableS3_FACu_colonycounts.xlsx"   # in the same folder as this Rmd
+sheet     <- "TableS3_counts"
+
+# Approximate cells per culture at plating
+Nt <- c(noFLC = 3e8, FLC16 = 2e8, FLC32 = 1e8)
+
+cells_per_unselective_colony <- 1e3   # ~1e2 cells aimed for unselective vs ~1e5 selective
+n_perm <- 999                         # permutations for analysis B
+set.seed(1)
+
+conds       <- c("noFLC", "FLC16", "FLC32")
+comparisons <- list(c("noFLC", "FLC16"), c("noFLC", "FLC32"))
+```
+
+## Load data
+
+Rows with no plating data for a condition are dropped. Selective counts that are plate medians (e.g. 5.5) are rounded half up, because rSalvador needs integers.
+
+```{r data}
+round_half_up <- function(x) floor(x + 0.5)
+
+raw <- as.data.frame(read_excel(xlsx_file, sheet = sheet))
+raw <- raw[!is.na(raw$Batch) & !grepl("^Events", raw$Batch), ]
+
+get_cond <- function(cond, Nt) {
+  d <- data.frame(batch = raw$Batch,
+                  unsel = raw[[paste0(cond, "_unselective")]],
+                  sel   = raw[[paste0(cond, "_selective")]])
+  d <- d[!is.na(d$unsel) & !is.na(d$sel), ]
+  d$cond   <- cond
+  d$mc     <- round_half_up(d$sel)                      # integer mutant colonies
+  d$plated <- d$unsel * cells_per_unselective_colony    # est. cells plated on selective
+  d$norm   <- round_half_up(d$sel / d$unsel * 100)      # per-1e5 value, rounded
+  d$e      <- d$plated / Nt[[cond]]                     # fraction of culture plated
+  d
+}
+dat <- lapply(setNames(conds, conds), get_cond, Nt = Nt)
+sapply(dat, nrow)   # cultures per condition
+
+all_dat <- do.call(rbind, dat)
+all_dat$cond <- factor(all_dat$cond, levels = conds)
+ggplot(all_dat, aes(cond, sel / unsel * 100)) +
+  geom_jitter(width = 0.1, height = 0, size = 2) +
+  stat_summary(fun = median, geom = "crossbar", width = 0.5, colour = "red") +
+  labs(x = NULL, y = "Mutants per 1e5 cells plated") + theme_bw()
+```
+
+
+Partial-plating model
+
+`newton.LD.plating(mc, e)` takes one plated fraction per call, so each condition uses the mean of its per-culture `e`. The conditions are compared with a permutation test on the mutation rate (m / Nt): cultures are shuffled between the two conditions, keeping each culture's own Nt, and the log ratio of rates is recomputed.
+
+```{r analysisB}
+fit_m <- function(d) {
+  if (exists("est_m")) return(est_m(d$mc, mean(d$e)))   # test hook, ignore
+  newton.LD.plating(d$mc, mean(d$e))
+}
+
+fitB <- data.frame(condition = conds,
+                   Nt = Nt[conds],
+                   mean_e = sapply(dat, function(d) mean(d$e)),
+                   m = sapply(dat, fit_m))
+fitB$mu <- fitB$m / fitB$Nt
+fitB
+
+perm_test <- function(d0, d1, B) {
+  stat <- function(a, b) log(fit_m(b) / Nt[[b$cond[1]]]) - log(fit_m(a) / Nt[[a$cond[1]]])
+  obs  <- stat(d0, d1)
+  pool <- rbind(d0, d1); n0 <- nrow(d0)
+  null <- replicate(B, {
+    idx <- sample(nrow(pool))
+    a <- pool[idx[1:n0], ];  b <- pool[idx[-(1:n0)], ]
+    a$cond <- d0$cond[1];    b$cond <- d1$cond[1]
+    stat(a, b)
+  })
+  c(fold_change = exp(obs), p_value = (1 + sum(abs(null) >= abs(obs), na.rm = TRUE)) / (1 + B))
+}
+
+resB <- do.call(rbind, lapply(comparisons, function(p) {
+  r <- perm_test(dat[[p[1]]], dat[[p[2]]], n_perm)
+  data.frame(comparison = paste(p, collapse = " vs "), fold_change_in_mu = unname(r[1]), perm_p = unname(r[2]))
+}))
+resB
+```
+
+
+## Notes
+
+- Rounding of plate medians, the noisy unselective counts (about 25-200 colonies), and using a mean `e` per condition all add error.
