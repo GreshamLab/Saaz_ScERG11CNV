@@ -35,6 +35,7 @@ The perbase.txt files used as input for some of these codes are ~250MB in size a
 | `FACu_rSalvador_tests.Rmd` | Mutation rate estimation utility for FACu fluctuation assays (calculates *m* from raw mutant colonies) |
 | `plotprocessing_passage.R` | Dependency for timecourse figure generation |
 | `quantify_pipeline_2.R` | Extracting barcode count data from sequencing files |
+| `shared_mutations_analysis.Rmd` | Combines SNPs of all CNV strains and removes those found in the ancestral strain. Requires all .vcf files in /StrainSNPs |
 
 ## Data Files
 
