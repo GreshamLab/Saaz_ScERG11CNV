@@ -1,0 +1,448 @@
+---
+title: "Shared mutations across strains: gene hits and loci"
+author: "Gresham Lab"
+date: "`r format(Sys.Date())`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+params:
+  vcf_dir: "."                 # folder with the *.ann.vcf files (default: same folder as this Rmd)
+  vcf_pattern: "\\.ann\\.vcf$" # which files to read
+  strain_suffix: "_filtered_snps_2\\.ann\\.vcf$"  # stripped from file names to get strain names
+  pass_only: true              # TRUE = keep only FILTER == PASS calls
+  include_upstream: false      # TRUE = also count upstream (promoter) variants as hits to that gene
+  exclude_synonymous: false    # TRUE = ignore synonymous variants
+  min_strains: 2               # a gene / locus must be in at least this many strains to be plotted
+  max_strains: .inf            # cap, e.g. 41, to hide hits shared by every strain (likely background vs. reference)
+  top_n: 50                    # how many genes / loci to show in the ranked bar charts
+  ancestor_file: "H5NKTDRX3_3183_filtered_snps_2.ann.vcf"  # ancestral strain for section 3
+  ancestor_use_all_calls: true # TRUE = mask every ancestral SNP, even ones that failed a filter
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(purrr)
+library(ggplot2)
+library(plotly)
+library(DT)
+```
+
+## Overview
+
+This report reads every SnpEff-annotated VCF in the folder, treats each file as one
+strain, and asks two questions:
+
+1. **Gene level** – which genes carry a mutation in more than one strain? A gene is
+   counted once per strain, no matter how many SNPs that strain has in it.
+2. **Locus level** – which exact variants (chromosome, position, REF>ALT) occur in more
+   than one strain?
+
+For each, there is a frequency-distribution plot, a ranked bar chart of the most
+shared genes/loci (hover to see strains), and a searchable table listing the strains
+carrying each hit. The tables are also written to CSV next to this file.
+
+Section 3 repeats the analysis for the evolved strains only: the ancestral strain is
+dropped and every SNP present in the ancestor is removed, so what remains are mutations
+that arose after the ancestor.
+
+**Current settings:** PASS only = `r params$pass_only`;
+upstream variants counted as gene hits = `r params$include_upstream`;
+synonymous excluded = `r params$exclude_synonymous`.
+
+## Read the VCFs
+
+```{r read}
+vcf_files <- list.files(params$vcf_dir, pattern = params$vcf_pattern, full.names = TRUE)
+stopifnot("No VCF files found - check params$vcf_dir" = length(vcf_files) > 0)
+
+ann_fields <- c("Allele", "Effect", "Impact", "Gene_Name", "Gene_ID", "Feature_Type",
+                "Feature_ID", "Biotype", "Rank", "HGVS_c", "HGVS_p")
+
+read_ann_vcf <- function(f) {
+  lines <- readLines(f)
+  lines <- lines[!startsWith(lines, "#")]
+  if (length(lines) == 0) return(NULL)
+  cols <- str_split_fixed(lines, "\t", 10)
+  tibble(
+    strain = sub(params$strain_suffix, "", basename(f)),
+    CHROM  = cols[, 1],
+    POS    = as.integer(cols[, 2]),
+    REF    = cols[, 4],
+    ALT    = cols[, 5],
+    QUAL   = as.numeric(cols[, 6]),
+    FILTER = cols[, 7],
+    ANN    = str_match(cols[, 8], "ANN=([^;]+)")[, 2],
+    GT     = sub(":.*", "", cols[, 10])
+  )
+}
+
+variants <- map_dfr(vcf_files, read_ann_vcf) %>%
+  filter(!GT %in% c("0", "0/0", "0|0", "./.", ".")) # drop reference / no-call genotypes
+
+strains <- sort(unique(variants$strain))
+total_strains <- length(strains)
+
+variants %>% count(strain, name = "all_calls") %>%
+  left_join(variants %>% filter(FILTER == "PASS") %>% count(strain, name = "PASS_calls"),
+            by = "strain") %>%
+  datatable(caption = "Calls per strain (before filtering)", rownames = FALSE,
+            options = list(pageLength = 10))
+
+if (params$pass_only) variants <- filter(variants, FILTER == "PASS")
+variants <- variants %>% mutate(locus = paste0(CHROM, ":", POS, ":", REF, ">", ALT))
+```
+
+`r total_strains` strains, `r nrow(variants)` variant calls after filtering.
+
+```{r annotations}
+# One row per (variant call x SnpEff annotation)
+ann_long <- variants %>%
+  mutate(ann_entry = str_split(ANN, ",")) %>%
+  unnest(ann_entry)
+ann_mat <- str_split_fixed(ann_long$ann_entry, "\\|", 12)[, 1:11, drop = FALSE]
+colnames(ann_mat) <- ann_fields
+ann_long <- bind_cols(select(ann_long, -ann_entry, -ANN), as_tibble(ann_mat))
+
+# Which effects count as "this gene is mutated"
+non_genic <- c("intergenic_region", "downstream_gene_variant")
+if (!params$include_upstream) non_genic <- c(non_genic, "upstream_gene_variant")
+
+gene_hits <- ann_long %>%
+  filter(!Effect %in% non_genic, Gene_Name != "")
+if (params$exclude_synonymous) gene_hits <- filter(gene_hits, Effect != "synonymous_variant")
+```
+
+## 1. Gene-level hits
+
+```{r gene_table}
+gene_summary <- gene_hits %>%
+  distinct(strain, Gene_Name, Gene_ID, locus, Effect, HGVS_p) %>%
+  group_by(Gene_Name, Gene_ID) %>%
+  summarise(
+    n_strains      = n_distinct(strain),
+    pct_strains    = round(100 * n_strains / total_strains, 1),
+    n_distinct_loci = n_distinct(locus),
+    effects        = paste(sort(unique(Effect)), collapse = "; "),
+    protein_changes = paste(sort(unique(HGVS_p[HGVS_p != ""])), collapse = "; "),
+    strains        = paste(sort(unique(strain)), collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n_strains), desc(n_distinct_loci), Gene_Name)
+```
+
+### Frequency distribution
+
+How many genes are mutated in exactly *k* strains?
+
+```{r gene_hist, fig.height=4}
+gene_dist <- gene_summary %>% count(n_strains, name = "n_genes")
+p <- ggplot(gene_dist, aes(n_strains, n_genes,
+                           text = paste0(n_genes, " genes mutated in ", n_strains, " strain(s)"))) +
+  geom_col(fill = "#3B6FB6") +
+  scale_x_continuous(breaks = seq_len(total_strains)) +
+  labs(x = "Number of strains in which the gene is mutated", y = "Number of genes") +
+  theme_minimal(base_size = 12)
+ggplotly(p, tooltip = "text")
+```
+
+### Most frequently hit genes
+
+Genes mutated in at least `r params$min_strains` (and at most `r params$max_strains`) strains (top `r params$top_n`).
+Hover a bar to see the strains.
+
+```{r gene_bar, fig.height=max(4, 0.22 * min(params$top_n, sum(gene_summary$n_strains >= params$min_strains & gene_summary$n_strains <= params$max_strains)) + 1.5)}
+top_genes <- gene_summary %>%
+  filter(n_strains >= params$min_strains, n_strains <= params$max_strains) %>%
+  slice_head(n = params$top_n) %>%
+  mutate(label = ifelse(Gene_Name == Gene_ID, Gene_Name, paste0(Gene_Name, " (", Gene_ID, ")")),
+         label = factor(label, levels = rev(unique(label))))
+
+p <- ggplot(top_genes, aes(n_strains, label,
+                           text = paste0("<b>", label, "</b><br>", n_strains, " strains, ",
+                                         n_distinct_loci, " distinct loci<br>",
+                                         str_wrap(strains, 60) %>% str_replace_all("\n", "<br>")))) +
+  geom_col(fill = "#3B6FB6") +
+  labs(x = "Number of strains", y = NULL) +
+  theme_minimal(base_size = 11)
+ggplotly(p, tooltip = "text")
+```
+
+### Gene table
+
+```{r gene_dt}
+datatable(gene_summary, rownames = FALSE, filter = "top",
+          colnames = c("Gene", "Gene ID", "# strains", "% strains", "# distinct loci",
+                       "Effects", "Protein changes", "Strains"),
+          options = list(pageLength = 25, scrollX = TRUE,
+                         columnDefs = list(list(width = "400px", targets = 7))))
+write.csv(gene_summary, file.path(params$vcf_dir, "gene_hit_frequency.csv"), row.names = FALSE)
+```
+
+## 2. Locus-level hits
+
+Each locus is one exact variant (`CHROM:POS:REF>ALT`), labelled with its most severe
+SnpEff annotation.
+
+```{r locus_table}
+# SnpEff lists the most severe annotation first
+top_ann <- ann_long %>% group_by(locus) %>% slice(1) %>% ungroup() %>%
+  select(locus, Effect, Impact, Gene_Name, Gene_ID, HGVS_c, HGVS_p)
+
+locus_scope <- variants %>%
+  semi_join(if (params$exclude_synonymous)
+              filter(top_ann, Effect != "synonymous_variant") else top_ann, by = "locus")
+
+locus_summary <- locus_scope %>%
+  group_by(locus, CHROM, POS, REF, ALT) %>%
+  summarise(
+    n_strains   = n_distinct(strain),
+    pct_strains = round(100 * n_strains / total_strains, 1),
+    genotypes   = paste(sort(unique(GT)), collapse = ", "),
+    strains     = paste(sort(unique(strain)), collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  left_join(top_ann, by = "locus") %>%
+  select(locus, CHROM, POS, Gene_Name, Gene_ID, Effect, Impact, HGVS_c, HGVS_p,
+         n_strains, pct_strains, genotypes, strains) %>%
+  arrange(desc(n_strains), CHROM, POS)
+```
+
+### Frequency distribution
+
+How many loci are shared by exactly *k* strains?
+
+```{r locus_hist, fig.height=4}
+locus_dist <- locus_summary %>% count(n_strains, name = "n_loci")
+p <- ggplot(locus_dist, aes(n_strains, n_loci,
+                            text = paste0(n_loci, " loci found in ", n_strains, " strain(s)"))) +
+  geom_col(fill = "#C2563A") +
+  scale_x_continuous(breaks = seq_len(total_strains)) +
+  labs(x = "Number of strains carrying the variant", y = "Number of loci") +
+  theme_minimal(base_size = 12)
+ggplotly(p, tooltip = "text")
+```
+
+### Most frequently shared loci
+
+Loci present in at least `r params$min_strains` (and at most `r params$max_strains`) strains (top `r params$top_n`).
+Hover a bar to see the strains.
+
+```{r locus_bar, fig.height=max(4, 0.22 * min(params$top_n, sum(locus_summary$n_strains >= params$min_strains & locus_summary$n_strains <= params$max_strains)) + 1.5)}
+top_loci <- locus_summary %>%
+  filter(n_strains >= params$min_strains, n_strains <= params$max_strains) %>%
+  slice_head(n = params$top_n) %>%
+  mutate(label = paste0(locus, "  ", Gene_Name, ifelse(HGVS_p != "", paste0(" ", HGVS_p), "")),
+         label = factor(label, levels = rev(unique(label))))
+
+p <- ggplot(top_loci, aes(n_strains, label, fill = Impact,
+                          text = paste0("<b>", locus, "</b> ", Gene_Name, " ", HGVS_p, "<br>",
+                                        Effect, "<br>", n_strains, " strains<br>",
+                                        str_wrap(strains, 60) %>% str_replace_all("\n", "<br>")))) +
+  geom_col() +
+  scale_fill_manual(values = c(HIGH = "#B2182B", MODERATE = "#EF8A62",
+                               LOW = "#67A9CF", MODIFIER = "#999999")) +
+  labs(x = "Number of strains", y = NULL) +
+  theme_minimal(base_size = 10)
+ggplotly(p, tooltip = "text")
+```
+
+### Locus table
+
+```{r locus_dt}
+datatable(locus_summary, rownames = FALSE, filter = "top",
+          colnames = c("Locus", "Chr", "Pos", "Gene", "Gene ID", "Effect", "Impact",
+                       "HGVS.c", "HGVS.p", "# strains", "% strains", "Genotypes", "Strains"),
+          options = list(pageLength = 25, scrollX = TRUE,
+                         columnDefs = list(list(width = "400px", targets = 12))))
+write.csv(locus_summary, file.path(params$vcf_dir, "locus_frequency.csv"), row.names = FALSE)
+```
+
+## 3. Evolved strains only (ancestral SNPs removed)
+
+The ancestral strain (`r params$ancestor_file`) is left out, and every locus
+(`CHROM:POS:REF>ALT`) called in the ancestor is removed from all other strains.
+`ancestor_use_all_calls = ` `r params$ancestor_use_all_calls`: when `TRUE`, the mask
+includes ancestral calls that failed a GATK filter. This avoids counting a background SNP
+as new just because it failed a filter in the ancestor but passed in an evolved strain.
+`max_strains` is not applied here because shared background has already been removed.
+
+```{r anc_mask}
+anc_path <- file.path(params$vcf_dir, params$ancestor_file)
+stopifnot("Ancestor VCF not found - check params$ancestor_file" = file.exists(anc_path))
+anc_strain <- sub(params$strain_suffix, "", basename(anc_path))
+
+anc_calls <- read_ann_vcf(anc_path) %>%
+  filter(!GT %in% c("0", "0/0", "0|0", "./.", "."))
+if (!params$ancestor_use_all_calls) anc_calls <- filter(anc_calls, FILTER == "PASS")
+anc_loci <- unique(paste0(anc_calls$CHROM, ":", anc_calls$POS, ":", anc_calls$REF, ">", anc_calls$ALT))
+
+evo_variants <- variants %>% filter(strain != anc_strain, !locus %in% anc_loci)
+evo_strains  <- setdiff(strains, anc_strain)
+evo_total    <- length(evo_strains)
+
+tibble(strain = evo_strains) %>%
+  left_join(variants %>% filter(strain != anc_strain) %>% count(strain, name = "calls_before_mask"),
+            by = "strain") %>%
+  left_join(evo_variants %>% count(strain, name = "calls_after_mask"), by = "strain") %>%
+  mutate(across(starts_with("calls"), ~ coalesce(.x, 0L))) %>%
+  datatable(caption = paste0("Calls per evolved strain before / after removing the ",
+                             length(anc_loci), " ancestral loci"),
+            rownames = FALSE, options = list(pageLength = 10))
+```
+
+`r evo_total` evolved strains, `r nrow(evo_variants)` variant calls left after masking
+`r length(anc_loci)` ancestral loci.
+
+```{r evo_tables}
+evo_gene_summary <- gene_hits %>%
+  semi_join(evo_variants, by = c("strain", "locus")) %>%
+  distinct(strain, Gene_Name, Gene_ID, locus, Effect, HGVS_p) %>%
+  group_by(Gene_Name, Gene_ID) %>%
+  summarise(
+    n_strains       = n_distinct(strain),
+    pct_strains     = round(100 * n_strains / evo_total, 1),
+    n_distinct_loci = n_distinct(locus),
+    effects         = paste(sort(unique(Effect)), collapse = "; "),
+    protein_changes = paste(sort(unique(HGVS_p[HGVS_p != ""])), collapse = "; "),
+    strains         = paste(sort(unique(strain)), collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n_strains), desc(n_distinct_loci), Gene_Name)
+
+evo_locus_summary <- evo_variants %>%
+  semi_join(if (params$exclude_synonymous)
+              filter(top_ann, Effect != "synonymous_variant") else top_ann, by = "locus") %>%
+  group_by(locus, CHROM, POS, REF, ALT) %>%
+  summarise(
+    n_strains   = n_distinct(strain),
+    pct_strains = round(100 * n_strains / evo_total, 1),
+    genotypes   = paste(sort(unique(GT)), collapse = ", "),
+    strains     = paste(sort(unique(strain)), collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  left_join(top_ann, by = "locus") %>%
+  select(locus, CHROM, POS, Gene_Name, Gene_ID, Effect, Impact, HGVS_c, HGVS_p,
+         n_strains, pct_strains, genotypes, strains) %>%
+  arrange(desc(n_strains), CHROM, POS)
+
+write.csv(evo_gene_summary,  file.path(params$vcf_dir, "gene_hit_frequency_no_ancestor.csv"), row.names = FALSE)
+write.csv(evo_locus_summary, file.path(params$vcf_dir, "locus_frequency_no_ancestor.csv"),    row.names = FALSE)
+
+n_evo_gene_bars  <- min(params$top_n, sum(evo_gene_summary$n_strains  >= params$min_strains))
+n_evo_locus_bars <- min(params$top_n, sum(evo_locus_summary$n_strains >= params$min_strains))
+```
+
+### 3a. Gene-level hits: frequency distribution
+
+```{r evo_gene_hist, fig.height=4}
+p <- evo_gene_summary %>% count(n_strains, name = "n_genes") %>%
+  ggplot(aes(n_strains, n_genes,
+             text = paste0(n_genes, " genes mutated in ", n_strains, " strain(s)"))) +
+  geom_col(fill = "#3B6FB6") +
+  scale_x_continuous(breaks = seq_len(evo_total)) +
+  labs(x = "Number of evolved strains in which the gene is mutated", y = "Number of genes") +
+  theme_minimal(base_size = 12)
+ggplotly(p, tooltip = "text")
+```
+
+### 3a. Most frequently hit genes
+
+Genes mutated in at least `r params$min_strains` evolved strains (top `r params$top_n`).
+Hover a bar to see the strains.
+
+```{r evo_gene_bar, fig.height=max(4, 0.22 * n_evo_gene_bars + 1.5)}
+if (n_evo_gene_bars == 0) {
+  cat("No gene is mutated in", params$min_strains, "or more evolved strains.")
+} else {
+  top <- evo_gene_summary %>%
+    filter(n_strains >= params$min_strains) %>%
+    slice_head(n = params$top_n) %>%
+    mutate(label = ifelse(Gene_Name == Gene_ID, Gene_Name, paste0(Gene_Name, " (", Gene_ID, ")")),
+           label = factor(label, levels = rev(unique(label))))
+  p <- ggplot(top, aes(n_strains, label,
+                       text = paste0("<b>", label, "</b><br>", n_strains, " strains, ",
+                                     n_distinct_loci, " distinct loci<br>",
+                                     str_wrap(strains, 60) %>% str_replace_all("\n", "<br>")))) +
+    geom_col(fill = "#3B6FB6") +
+    labs(x = "Number of evolved strains", y = NULL) +
+    theme_minimal(base_size = 11)
+  ggplotly(p, tooltip = "text")
+}
+```
+
+### 3a. Gene table
+
+```{r evo_gene_dt}
+datatable(evo_gene_summary, rownames = FALSE, filter = "top",
+          colnames = c("Gene", "Gene ID", "# strains", "% strains", "# distinct loci",
+                       "Effects", "Protein changes", "Strains"),
+          options = list(pageLength = 25, scrollX = TRUE,
+                         columnDefs = list(list(width = "400px", targets = 7))))
+```
+
+### 3b. Locus-level hits: frequency distribution
+
+```{r evo_locus_hist, fig.height=4}
+p <- evo_locus_summary %>% count(n_strains, name = "n_loci") %>%
+  ggplot(aes(n_strains, n_loci,
+             text = paste0(n_loci, " loci found in ", n_strains, " strain(s)"))) +
+  geom_col(fill = "#C2563A") +
+  scale_x_continuous(breaks = seq_len(evo_total)) +
+  labs(x = "Number of evolved strains carrying the variant", y = "Number of loci") +
+  theme_minimal(base_size = 12)
+ggplotly(p, tooltip = "text")
+```
+
+### 3b. Most frequently shared loci
+
+Loci present in at least `r params$min_strains` evolved strains (top `r params$top_n`).
+Hover a bar to see the strains.
+
+```{r evo_locus_bar, fig.height=max(4, 0.22 * n_evo_locus_bars + 1.5)}
+if (n_evo_locus_bars == 0) {
+  cat("No locus is shared by", params$min_strains, "or more evolved strains.")
+} else {
+  top <- evo_locus_summary %>%
+    filter(n_strains >= params$min_strains) %>%
+    slice_head(n = params$top_n) %>%
+    mutate(label = paste0(locus, "  ", Gene_Name, ifelse(HGVS_p != "", paste0(" ", HGVS_p), "")),
+           label = factor(label, levels = rev(unique(label))))
+  p <- ggplot(top, aes(n_strains, label, fill = Impact,
+                       text = paste0("<b>", locus, "</b> ", Gene_Name, " ", HGVS_p, "<br>",
+                                     Effect, "<br>", n_strains, " strains<br>",
+                                     str_wrap(strains, 60) %>% str_replace_all("\n", "<br>")))) +
+    geom_col() +
+    scale_fill_manual(values = c(HIGH = "#B2182B", MODERATE = "#EF8A62",
+                                 LOW = "#67A9CF", MODIFIER = "#999999")) +
+    labs(x = "Number of evolved strains", y = NULL) +
+    theme_minimal(base_size = 10)
+  ggplotly(p, tooltip = "text")
+}
+```
+
+### 3b. Locus table
+
+```{r evo_locus_dt}
+datatable(evo_locus_summary, rownames = FALSE, filter = "top",
+          colnames = c("Locus", "Chr", "Pos", "Gene", "Gene ID", "Effect", "Impact",
+                       "HGVS.c", "HGVS.p", "# strains", "% strains", "Genotypes", "Strains"),
+          options = list(pageLength = 25, scrollX = TRUE,
+                         columnDefs = list(list(width = "400px", targets = 12))))
+```
+
+## Notes
+
+- Variants found in (nearly) all strains are most likely differences between your
+  ancestral background and the S288C reference rather than independently acquired
+  mutations; filter on `# strains` in the tables to focus on intermediate frequencies.
+- Only files directly in `vcf_dir` are read; subfolders (e.g. `GAP1strains/`) are ignored.
+- Strain names are taken from the file names with `_filtered_snps_2.ann.vcf` removed.
+
+```{r session}
+sessionInfo()
+```
